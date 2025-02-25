@@ -1,68 +1,64 @@
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status, generics
-from .models import Attendance, Student
-from .serializers import AttendanceSerializer, StudentSerializer
-import csv
-import io
+import pandas as pd
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST  # Restrict to POST requests
+from .models import Student, Attendance
+from .forms import ExcelUploadForm
 
-class StudentListView(generics.ListAPIView):
-    """ API to list all students """
-    queryset = Student.objects.all()
-    serializer_class = StudentSerializer
+@csrf_exempt  # Disable CSRF for API calls
+@require_POST  # Ensure only POST requests are allowed
+def upload_excel(request):
+    print("Received POST request")  # Debugging step
+    print("FILES: ", request.FILES)  # Check if file is received
 
-class AttendanceListView(generics.ListCreateAPIView):
-    """ API to list attendance records and mark attendance manually """
-    queryset = Attendance.objects.all()
-    serializer_class = AttendanceSerializer
-
-class AttendanceDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """ API to get, update, or delete a specific attendance record """
-    queryset = Attendance.objects.all()
-    serializer_class = AttendanceSerializer
-@api_view(['POST'])
-def upload_csv(request):
-    """ API to upload attendance via CSV """
     if 'file' not in request.FILES:
-        return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
+        return JsonResponse({"error": "No file uploaded. Make sure to send a file with key 'file'."}, status=400)
+
+    form = ExcelUploadForm(request.POST, request.FILES)
+    
+    if not form.is_valid():
+        return JsonResponse({"error": "Invalid form submission. Please upload a valid Excel file."}, status=400)
 
     file = request.FILES['file']
-    
+
     try:
-        decoded_file = file.read().decode("utf-8")
-        io_string = io.StringIO(decoded_file)
-        reader = csv.reader(io_string)
-        
-        header = next(reader, None)  # Read header
-        if header != ["reg_no", "date", "status"]:
-            return Response({"error": "CSV header format should be: reg_no,date,status"}, status=status.HTTP_400_BAD_REQUEST)
+        # Read the Excel file
+        df = pd.read_excel(file, engine='openpyxl')
 
-        records = []
-        for row in reader:
-            print(f"Processing row: {row}")  # Debugging log
+        # Ensure required columns are present
+        required_columns = ['ParticipantId', 'Participant Name', 'Session Attended (P/A)']
+        if not all(col in df.columns for col in required_columns):
+            return JsonResponse({"error": "Invalid file format. Please upload the correct Excel sheet."}, status=400)
 
-            if len(row) != 3:
-                return Response({"error": f"Invalid row format: {row}"}, status=status.HTTP_400_BAD_REQUEST)
+        errors = []
+        success_count = 0
 
-            reg_no, date, status_value = row
-            student = Student.objects.filter(reg_no=reg_no).first()
+        # Process each row
+        for index, row in df.iterrows():
+            reg_no = str(row.get('ParticipantId', '')).strip()
+            name = str(row.get('Participant Name', '')).strip()
+            status = str(row.get('Session Attended (P/A)', '')).strip()
 
-            if not student:
-                print(f"Student with reg_no {reg_no} not found.")  # Debugging log
-                continue  
+            # Validate data
+            if not reg_no or not name:
+                errors.append(f"Missing Participant ID or Name at row {index + 2}. Skipping entry.")
+                continue
+            
+            if status not in ['P', 'A']:
+                errors.append(f"Invalid attendance value at row {index + 2}. Use 'P' or 'A'.")
+                continue
 
-            attendance, created = Attendance.objects.update_or_create(
-                student=student, date=date, defaults={"status": status_value}
-            )
-            records.append(attendance)
+            # Get or create student
+            student, _ = Student.objects.get_or_create(registration_number=reg_no, defaults={'name': name})
 
-        return Response({"message": f"{len(records)} records uploaded successfully!"}, status=status.HTTP_201_CREATED)
+            # Save attendance
+            Attendance.objects.create(student=student, status=status)
+            success_count += 1
+
+        return JsonResponse({
+            "message": f"Attendance data uploaded successfully. {success_count} records saved.",
+            "errors": errors
+        }, status=200)
 
     except Exception as e:
-        print(f"Error: {e}")  # Debugging log
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['GET'])
-def home(request):
-    return Response({"message": "Welcome to the Attendance System API!"})
+        return JsonResponse({"error": f"Error processing file: {str(e)}"}, status=500)
