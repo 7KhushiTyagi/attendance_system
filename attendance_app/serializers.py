@@ -1,22 +1,25 @@
 from rest_framework import serializers
 from .models import Attendance, Student
 
+class StudentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = ['reg_no', 'name']
+
 class AttendanceSerializer(serializers.ModelSerializer):
-    student_reg_no = serializers.CharField(write_only=True)  # Accepts reg_no from CSV
+    student = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all())  # Use student ID instead of reg_no
 
     class Meta:
         model = Attendance
-        fields = ['student_reg_no', 'date', 'status']
+        fields = ['student', 'date', 'status']
 
-    def create(self, validated_data):
-        reg_no = validated_data.pop('student_reg_no')
-        student = Student.objects.filter(reg_no=reg_no).first()
+    def validate(self, data):
+        """ Ensure a student does not have duplicate attendance for the same date """
+        student = data.get('student')
+        date = data.get('date')
 
-        if not student:
-            raise serializers.ValidationError({"student_reg_no": "Student with this reg_no does not exist."})
+        if Attendance.objects.filter(student=student, date=date).exists():
+            raise serializers.ValidationError({"error": "Attendance for this student on this date already exists."})
 
-        attendance = Attendance.objects.create(student=student, **validated_data)
-        return attendance
-    
-    
+        return data
 
