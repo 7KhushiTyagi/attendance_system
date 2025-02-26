@@ -59,13 +59,32 @@ def upload_excel(request):
             Attendance.objects.create(student=student, status=status, sheet_name=sheet_name)
             success_count += 1
 
-        
         return JsonResponse({
-    "message": f"Attendance data uploaded successfully. {success_count} records saved.",
-    "sheet_name": sheet_name,  # Include sheet name in response
-    "errors": errors
-}, status=200)
-
+            "message": f"Attendance data uploaded successfully. {success_count} records saved.",
+            "sheet_name": sheet_name,  # Include sheet name in response
+            "errors": errors
+        }, status=200)
 
     except Exception as e:
         return JsonResponse({"error": f"Error processing file: {str(e)}"}, status=500)
+
+@csrf_exempt
+@require_POST
+def delete_sheet(request):
+    """Delete attendance records for a given sheet name."""
+    try:
+        data = request.POST
+        sheet_name = data.get("sheet_name", "").strip()
+
+        if not sheet_name:
+            return JsonResponse({"error": "Sheet name is required."}, status=400)
+
+        deleted_count, _ = Attendance.objects.filter(sheet_name=sheet_name).delete()
+
+        if deleted_count == 0:
+            return JsonResponse({"error": "No records found for the given sheet name."}, status=404)
+
+        return JsonResponse({"message": f"Sheet '{sheet_name}' deleted successfully.", "deleted_records": deleted_count}, status=200)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
