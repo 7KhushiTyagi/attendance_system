@@ -1,3 +1,4 @@
+from urllib import request
 import pandas as pd
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -33,6 +34,9 @@ def upload_excel(request):
         errors = []
         success_count = 0
 
+        # Get sheet name from user input
+        sheet_name = request.POST.get("sheet_name", "Default Sheet")
+
         # Process each row
         for index, row in df.iterrows():
             reg_no = str(row.get('ParticipantId', '')).strip()
@@ -52,13 +56,16 @@ def upload_excel(request):
             student, _ = Student.objects.get_or_create(registration_number=reg_no, defaults={'name': name})
 
             # Save attendance
-            Attendance.objects.create(student=student, status=status)
+            Attendance.objects.create(student=student, status=status, sheet_name=sheet_name)
             success_count += 1
 
+        
         return JsonResponse({
-            "message": f"Attendance data uploaded successfully. {success_count} records saved.",
-            "errors": errors
-        }, status=200)
+    "message": f"Attendance data uploaded successfully. {success_count} records saved.",
+    "sheet_name": sheet_name,  # Include sheet name in response
+    "errors": errors
+}, status=200)
+
 
     except Exception as e:
         return JsonResponse({"error": f"Error processing file: {str(e)}"}, status=500)

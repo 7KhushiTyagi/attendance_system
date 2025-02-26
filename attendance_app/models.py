@@ -10,36 +10,32 @@ class Student(models.Model):
 
 class Attendance(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE)
-    student = models.ForeignKey(Student, on_delete=models.CASCADE, default=1)
-
-    date = models.DateField(auto_now_add=True)  # Change as per requirement
+    date = models.DateField(auto_now_add=True)
     status = models.CharField(max_length=1, choices=[('P', 'Present'), ('A', 'Absent')])
+    sheet_name = models.CharField(max_length=100, default="Untitled Sheet")
 
     class Meta:
-        unique_together = ('student', 'date')  # Prevent duplicate attendance records
+        unique_together = ('student', 'date', 'sheet_name')
 
     def clean(self):
-        """Normalize status input before validation"""
         self.status = self.normalize_status(self.status)
         if self.status is None:
             raise ValidationError("Invalid attendance status. Use 'P', 'A', 'present', or 'absent'.")
 
     def save(self, *args, **kwargs):
-        """Override save method to normalize status before saving"""
-        self.clean()  # Validate before saving
+        self.clean()
         super().save(*args, **kwargs)
 
     @staticmethod
     def normalize_status(value):
-        """Convert various inputs to 'P' or 'A'"""
-        value = value.strip().lower()  # Remove spaces and make lowercase
+        if not isinstance(value, str):
+            return None
+        value = value.strip().lower()
         if value in ["p", "present"]:
             return "P"
         elif value in ["a", "absent"]:
             return "A"
-        return None  # Invalid value
+        return None
 
     def __str__(self):
-        return f"{self.student.name} - {self.status}"
-
-
+        return f"{self.student.name} - {self.status} ({self.sheet_name})"
